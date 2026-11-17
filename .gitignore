@@ -6,3 +6,5 @@ __pycache__/
 /SKILL.md
 /data/
 /tmp/
+/state/discovered_papers.json
+/state/discovered_papers.fernet

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import gzip
 import json
+import os
 import re
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Iterable
+
+from cryptography.fernet import Fernet, InvalidToken
 
 from .models import Paper
 from .priority_authors import matched_priority_authors
@@ -31,9 +36,13 @@ def base_arxiv_id(arxiv_id: str) -> str:
 
 
 def load_paper_state(path: Path) -> dict:
+    cipher = _state_cipher() if path.suffix == ".fernet" else None
     if not path.exists():
         return {"schema_version": SCHEMA_VERSION, "pooled_papers": {}}
-    payload = json.loads(path.read_text() or "{}")
+    contents = path.read_bytes()
+    if cipher is not None:
+        contents = _decrypt_state(cipher, contents)
+    payload = json.loads(contents or b"{}")
     if not isinstance(payload, dict):
         raise ValueError(f"Paper state must be a JSON object: {path}")
     if payload.get("schema_version") != SCHEMA_VERSION:
@@ -54,8 +63,40 @@ def save_paper_state(path: Path, state: dict) -> None:
                 }
                 for base_id, record in state[bucket_name].items()
             }
+    contents = (json.dumps(stored_state, ensure_ascii=True, indent=2, sort_keys=True) + "\n").encode()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(stored_state, ensure_ascii=True, indent=2, sort_keys=True) + "\n")
+    if path.suffix != ".fernet":
+        path.write_bytes(contents)
+        return
+
+    cipher = _state_cipher()
+    if path.exists() and _decrypt_state(cipher, path.read_bytes()) == contents:
+        return
+    with NamedTemporaryFile(dir=path.parent, delete=False) as output:
+        temporary_path = Path(output.name)
+        try:
+            output.write(cipher.encrypt(gzip.compress(contents, mtime=0)))
+            output.close()
+            temporary_path.replace(path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
+
+def _state_cipher() -> Fernet:
+    key = os.environ.get("PAPER_STATE_KEY")
+    if not key:
+        raise ValueError("PAPER_STATE_KEY is required for the encrypted paper state")
+    try:
+        return Fernet(key)
+    except ValueError:
+        raise ValueError("PAPER_STATE_KEY is invalid") from None
+
+
+def _decrypt_state(cipher: Fernet, contents: bytes) -> bytes:
+    try:
+        return gzip.decompress(cipher.decrypt(contents))
+    except (InvalidToken, OSError, EOFError):
+        raise ValueError("Could not authenticate or read the encrypted paper state") from None
 
 
 def _source_from_paper_id(paper_id: str) -> str:

@@ -166,16 +166,22 @@ jobs:
         if: steps.fetch_score_gate.outputs.should_run == 'true'
         working-directory: app
         env:
-          PAPER_STATE_PATH: ../paper-state/state/discovered_papers.json
+          PAPER_STATE_PATH: ../paper-state/state/discovered_papers.fernet
+          PAPER_STATE_KEY: ${{ secrets.PAPER_STATE_KEY }}
           PIPELINE_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.stage || 'fetch-score' }}
-        run: uv run -m ir_arxiv_ranker --config my_config/config.yaml --stage "$PIPELINE_STAGE"
+        run: |
+          if ! uv run --frozen -m ir_arxiv_ranker --config my_config/config.yaml --stage "$PIPELINE_STAGE" >"$RUNNER_TEMP/newsletter-fetch.log" 2>&1; then
+            echo "::error::Fetch and Score failed. Pipeline details are withheld from public logs."
+            exit 1
+          fi
       - name: Commit updated paper state
         if: always() && steps.fetch_score_gate.outputs.should_run == 'true'
         working-directory: paper-state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add state/discovered_papers.json
+          test -f state/discovered_papers.fernet
+          git add -- state/discovered_papers.fernet
           git diff --cached --quiet && exit 0
           git commit -m "Update discovered paper state"
           for attempt in 1 2 3; do

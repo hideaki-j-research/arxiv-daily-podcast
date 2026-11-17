@@ -70,15 +70,27 @@ jobs:
       - name: Publish newsletter
         working-directory: app
         env:
-          PAPER_STATE_PATH: ../paper-state/state/discovered_papers.json
-        run: uv run -m ir_arxiv_ranker --config my_config/config.yaml --stage publish
+          PAPER_STATE_PATH: ../paper-state/state/discovered_papers.fernet
+          PAPER_STATE_KEY: ${{ secrets.PAPER_STATE_KEY }}
+        run: |
+          log="$RUNNER_TEMP/newsletter-publish.log"
+          if ! uv run --frozen -m ir_arxiv_ranker --config my_config/config.yaml --stage publish >"$log" 2>&1; then
+            echo "::error::Publish Newsletter failed. Pipeline details are withheld from public logs."
+            exit 1
+          fi
+          if grep -qxF 'Sent update email.' "$log"; then
+            echo "Newsletter email sent."
+          else
+            echo "No newsletter email sent."
+          fi
       - name: Commit updated paper state
         if: always()
         working-directory: paper-state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add state/discovered_papers.json
+          test -f state/discovered_papers.fernet
+          git add -- state/discovered_papers.fernet
           git diff --cached --quiet && exit 0
           git commit -m "Update sent paper state"
           for attempt in 1 2 3; do
