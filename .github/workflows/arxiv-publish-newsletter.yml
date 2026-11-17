@@ -73,6 +73,7 @@ jobs:
           PAPER_STATE_PATH: ../paper-state/state/discovered_papers.fernet
           PAPER_STATE_KEY: ${{ secrets.PAPER_STATE_KEY }}
         run: |
+          # Report delivery status without identifying the selected paper.
           log="$RUNNER_TEMP/newsletter-publish.log"
           if ! uv run --frozen -m ir_arxiv_ranker --config my_config/config.yaml --stage publish >"$log" 2>&1; then
             echo "::error::Publish Newsletter failed. Pipeline details are withheld from public logs."

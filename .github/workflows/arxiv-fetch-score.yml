@@ -170,6 +170,7 @@ jobs:
           PAPER_STATE_KEY: ${{ secrets.PAPER_STATE_KEY }}
           PIPELINE_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.stage || 'fetch-score' }}
         run: |
+          # Keep matched-paper details on the runner.
           if ! uv run --frozen -m ir_arxiv_ranker --config my_config/config.yaml --stage "$PIPELINE_STAGE" >"$RUNNER_TEMP/newsletter-fetch.log" 2>&1; then
             echo "::error::Fetch and Score failed. Pipeline details are withheld from public logs."
             exit 1
