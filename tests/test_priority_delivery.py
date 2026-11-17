@@ -1,3 +1,4 @@
+import json
 from argparse import Namespace
 from pathlib import Path
 
@@ -23,12 +24,12 @@ def record(name, sent=False, score=4, legal_score=2, base_id=None):
 
 
 def test_matching_requires_full_name_but_ignores_case_accents_and_spacing():
-      assert matched_priority_authors(
-          ["  ÉXAMPLE   Author "], ["Example Author"]
-      ) == ["Example Author"]
-      for name in ["Author", "E. Author", "Example Authors", "Someone Example Author"]:
-          assert matched_priority_authors([name], ["Example Author"]) == []
-  
+    assert matched_priority_authors(
+        ["  ÉXAMPLE   Author "], ["Example Author"]
+    ) == ["Example Author"]
+    for name in ["Author", "E. Author", "Example Authors", "Someone Example Author"]:
+        assert matched_priority_authors([name], ["Example Author"]) == []
+
 
 def test_entire_history_is_rechecked_without_resending_sent_papers():
     state = {"schema_version": 1, "pooled_papers": {
@@ -76,7 +77,11 @@ def test_publish_selects_matching_paper_over_higher_scoring_outsider(tmp_path, m
     state_path = tmp_path / "state.json"
     save_paper_state(state_path, {"schema_version": 1, "pooled_papers": {
         "outsider": record("Famous Unregistered", score=6, legal_score=100, base_id="outsider"),
-        "target": record("Test Author 1", score=1, base_id="target"),
+        "target": {
+            **record("Test Author 1", score=1, base_id="target"),
+            "priority_author_matches": ["Obsolete registry name"],
+            "priority_author_gate_passed": True,
+        },
     }})
     settings = load_config(Path("my_config/config.yaml"))
     monkeypatch.setenv("PRIORITY_AUTHORS", "Test Author 1")
@@ -123,6 +128,9 @@ def test_publish_selects_matching_paper_over_higher_scoring_outsider(tmp_path, m
     assert "Famous Unregistered" not in sent[0]["body"]
     assert "**Test Author 1**" in sent[0]["body"]
     assert "Affiliations:" not in sent[0]["html_body"]
-    state = load_paper_state(state_path)["pooled_papers"]
+    state = json.loads(state_path.read_text())["pooled_papers"]
+    for stored_record in state.values():
+        assert "priority_author_matches" not in stored_record
+        assert "priority_author_gate_passed" not in stored_record
     assert state["target"]["sent"] is True
     assert state["outsider"]["sent"] is False

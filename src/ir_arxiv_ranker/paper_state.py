@@ -42,8 +42,20 @@ def load_paper_state(path: Path) -> dict:
 
 
 def save_paper_state(path: Path, state: dict) -> None:
+    # Author matches are recomputed from the private registry on each run.
+    stored_state = dict(state)
+    for bucket_name in ("pooled_papers", "sent_papers", "papers"):
+        if bucket_name in state:
+            stored_state[bucket_name] = {
+                base_id: {
+                    field: value
+                    for field, value in record.items()
+                    if field not in ("priority_author_matches", "priority_author_gate_passed")
+                }
+                for base_id, record in state[bucket_name].items()
+            }
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, ensure_ascii=True, indent=2, sort_keys=True) + "\n")
+    path.write_text(json.dumps(stored_state, ensure_ascii=True, indent=2, sort_keys=True) + "\n")
 
 
 def _source_from_paper_id(paper_id: str) -> str:
@@ -340,8 +352,6 @@ def refresh_priority_author_gate(
     """Recheck all history against the current registry, preserving sent flags."""
     for record in _record_bucket(state).values():
         matches = matched_priority_authors(record.get("authors", []), priority_authors)
-        record["priority_author_matches"] = matches
-        record["priority_author_gate_passed"] = bool(matches)
         if matches:
             record["influence_score"] = PRIORITY_INFLUENCE_SCORE
             for scores_key, total_key in (
